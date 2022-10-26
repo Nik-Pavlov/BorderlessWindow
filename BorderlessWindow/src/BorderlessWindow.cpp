@@ -33,6 +33,7 @@ namespace {
         }
 
         // Values copied from Chromium
+        // https://source.chromium.org/chromium/chromium/src/+/main:ui/views/win/hwnd_message_handler.cc;l=2312;drc=12380f30f2bb0a9a96a566f327a364a54a92dcc1
         rect.left += 7;
         rect.top += 7;
         // If you put -8 here, a 1px gap disappears on Windows 11
