@@ -39,20 +39,10 @@ namespace {
             return;
         }
 
-        auto monitor = ::MonitorFromWindow(window, MONITOR_DEFAULTTONULL);
-        if (!monitor) {
-            return;
-        }
-
-        MONITORINFO monitor_info{};
-        monitor_info.cbSize = sizeof(monitor_info);
-        if (!::GetMonitorInfoW(monitor, &monitor_info)) {
-            return;
-        }
-
-        // when maximized, make the client area fill just the monitor (without task bar) rect,
-        // not the whole window rect which extends beyond the monitor.
-        rect = monitor_info.rcWork;
+        rect.left += 7;
+        rect.top += 7;
+        rect.bottom -= 9;
+        rect.right -= 7;
     }
 
     auto last_error(const std::string& message) -> std::system_error {
@@ -70,7 +60,7 @@ namespace {
             wcx.hInstance = nullptr;
             wcx.lpfnWndProc = wndproc;
             wcx.lpszClassName = L"BorderlessWindowClass";
-            wcx.hbrBackground = reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1);
+            wcx.hbrBackground = (HBRUSH)CreateSolidBrush(RGB(0, 0, 240));
             wcx.hCursor = ::LoadCursorW(nullptr, IDC_ARROW);
             const ATOM result = ::RegisterClassExW(&wcx);
             if (!result) {
@@ -93,7 +83,7 @@ namespace {
 
     auto set_shadow(HWND handle, bool enabled) -> void {
         if (composition_enabled()) {
-            static const MARGINS shadow_state[2]{ { 0,0,0,0 },{ 1,1,1,1 } };
+            static const MARGINS shadow_state[2]{ { 0,0,0,0 },{ 0,0,1,0 } };
             ::DwmExtendFrameIntoClientArea(handle, &shadow_state[enabled]);
         }
     }
