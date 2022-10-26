@@ -1,31 +1,18 @@
-BorderlessWindow
+Borderless Window
 ================
 
-This sample application demonstrates the necessary WinAPI calls and window 
-messages to handle to produce a resizable, borderless window (similar to Steam, GitHub for Windows).
+This sample application demonstrates differences in Windows 10 and Windows 11 [DwmExtendFrameIntoClientArea](https://learn.microsoft.com/en-us/windows/win32/api/dwmapi/nf-dwmapi-dwmextendframeintoclientarea) implementations and how it creates discrepancies in how the borderless window looks.
 
+Additionally, these discrepancies result in a 1 px gap when the window is Maximized in Windows 11.
 
+### Windows 10: 1 px white line on top of the window
+![image](https://user-images.githubusercontent.com/30529656/198061778-691f46cb-840b-4cb3-998e-e7821d805388.png)
 
-![sample](https://cloud.githubusercontent.com/assets/3340026/20039089/69b3b2f6-a43e-11e6-8a44-21599a34ceba.png)
+### Windows 11: No lines on top of the window
+![image](https://user-images.githubusercontent.com/30529656/198061926-1c608884-bebb-4fe2-83cf-46b95ebaa5dc.png)
 
-The borderless window can be resized, moved, and also supports all the Aero features a regular window has:
+### Windows 10: Maximized
+![image](https://user-images.githubusercontent.com/30529656/198062043-5c0b7034-2a55-4525-8a81-5e9ad22fc086.png)
 
-- snapping to desktop halves/quadrants
-- shake to minimize all other windows
-- animations when minimizing, maximizing, restoring, snapping
-- native soft shadow around the window
-
-The sample should work on Windows 7, 8/8.1 and 10.
-
-What this example does *not* do:
-
-- Draw anything to the client area. You will need to fill the entire window with an opaque color, or the window frame may be visible inside your client area in borderless mode. 
-  In my use case I simply fill the D3D backbuffer covering the window's client area.
-- Calculate proper client/window size in windowed mode. You will need to use [AdjustWindowRect](https://msdn.microsoft.com/en-us/library/windows/desktop/ms632665(v=vs.85).aspx) and friends to calculate the correct window size for a desired client area size.
-
-Keybinds:
-
-- F8  enables/disables dragging in the borderless window to move it 
-- F9  enables/disables resizing the borderless window
-- F10 toggles between borderless and windowed mode
-- F11 toggles the aero shadow when in borderless mode
+### Windows 11: Maximized - 1px gap between the taskbar and the window
+![image](https://user-images.githubusercontent.com/30529656/198062519-a66c11aa-8f71-43fb-992a-50b5ced858f8.png)
