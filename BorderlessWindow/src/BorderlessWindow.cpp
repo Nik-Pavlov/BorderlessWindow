@@ -1,30 +1,23 @@
 ﻿#include "BorderLessWindow.hpp"
 
+#include <string>
 #include <stdexcept>
 #include <system_error>
 
-#include <Windows.h>
 #include <windowsx.h>
 #include <dwmapi.h>
 #pragma comment(lib, "dwmapi.lib")
 
 
 namespace {
-    // we cannot just use WS_POPUP style
-    // WS_THICKFRAME: without this the window cannot be resized and so aero snap, de-maximizing and minimizing won't work
-    // WS_SYSMENU: enables the context menu with the move, close, maximize, minize... commands (shift + right-click on the task bar item)
-    // WS_CAPTION: enables aero minimize animation/transition
-    // WS_MAXIMIZEBOX, WS_MINIMIZEBOX: enable minimize/maximize
     enum class Style : DWORD {
-        windowed         = WS_OVERLAPPEDWINDOW | WS_THICKFRAME | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX | WS_MAXIMIZEBOX,
-        aero_borderless  = WS_POPUP            | WS_THICKFRAME | WS_CAPTION | WS_SYSMENU | WS_MAXIMIZEBOX | WS_MINIMIZEBOX,
-        basic_borderless = WS_POPUP            | WS_THICKFRAME              | WS_SYSMENU | WS_MAXIMIZEBOX | WS_MINIMIZEBOX
+        aero_borderless = WS_POPUP | WS_THICKFRAME | WS_CAPTION | WS_SYSMENU | WS_MAXIMIZEBOX | WS_MINIMIZEBOX
     };
 
-    auto maximized(HWND hwnd) -> bool {
-        WINDOWPLACEMENT placement;
+    bool maximized(HWND hwnd) {
+        WINDOWPLACEMENT placement{};
         if (!::GetWindowPlacement(hwnd, &placement)) {
-              return false;
+            return false;
         }
 
         return placement.showCmd == SW_MAXIMIZE;
@@ -34,27 +27,29 @@ namespace {
      * rect(in/out): in: proposed window rect, out: calculated client rect
      * Does nothing if the window is not maximized.
      */
-    auto adjust_maximized_client_rect(HWND window, RECT& rect) -> void {
+    void adjust_maximized_client_rect(HWND window, RECT& rect) {
         if (!maximized(window)) {
             return;
         }
 
+        // Values copied from Chromium
         rect.left += 7;
         rect.top += 7;
         // If you put -8 here, a 1px gap disappears on Windows 11
-        // but on Windows 10 you won't be able to trigger the hidden taskbar to appear.
+        // but on Windows 10 you won't be able to trigger the hidden taskbar to appear
+        // by dragging the mouse to the bottom of the screen
         rect.bottom -= 9;
         rect.right -= 7;
     }
 
-    auto last_error(const std::string& message) -> std::system_error {
+    std::system_error last_error(const std::string& message) {
         return std::system_error(
             std::error_code(::GetLastError(), std::system_category()),
             message
         );
     }
 
-    auto window_class(WNDPROC wndproc) -> const wchar_t* {
+    const wchar_t* window_class(WNDPROC wndproc) {
         static const wchar_t* window_class_name = [&] {
             WNDCLASSEXW wcx{};
             wcx.cbSize = sizeof(wcx);
@@ -62,7 +57,7 @@ namespace {
             wcx.hInstance = nullptr;
             wcx.lpfnWndProc = wndproc;
             wcx.lpszClassName = L"BorderlessWindowClass";
-            wcx.hbrBackground = (HBRUSH)CreateSolidBrush(RGB(0, 0, 240));
+            wcx.hbrBackground = (HBRUSH)CreateSolidBrush(RGB(0, 120, 212));
             wcx.hCursor = ::LoadCursorW(nullptr, IDC_ARROW);
             const ATOM result = ::RegisterClassExW(&wcx);
             if (!result) {
@@ -73,24 +68,20 @@ namespace {
         return window_class_name;
     }
 
-    auto composition_enabled() -> bool {
+    bool composition_enabled() {
         BOOL composition_enabled = FALSE;
         bool success = ::DwmIsCompositionEnabled(&composition_enabled) == S_OK;
         return composition_enabled && success;
     }
 
-    auto select_borderless_style() -> Style {
-     return composition_enabled() ? Style::aero_borderless : Style::basic_borderless;
-    }
-
-    auto set_shadow(HWND handle, bool enabled) -> void {
+    void set_shadow(HWND handle) {
         if (composition_enabled()) {
-            static const MARGINS shadow_state[2]{ { 0,0,0,0 },{ 0,0,1,0 } };
-            ::DwmExtendFrameIntoClientArea(handle, &shadow_state[enabled]);
+            static const MARGINS margins{ 0,0,1,0 };
+            ::DwmExtendFrameIntoClientArea(handle, &margins);
         }
     }
 
-    auto create_window(WNDPROC wndproc, void* userdata) -> unique_handle {
+    unique_handle create_window(WNDPROC wndproc, void* userdata) {
         auto handle = CreateWindowExW(
             0, window_class(wndproc), L"Borderless Window",
             static_cast<DWORD>(Style::aero_borderless), CW_USEDEFAULT, CW_USEDEFAULT,
@@ -99,41 +90,27 @@ namespace {
         if (!handle) {
             throw last_error("failed to create window");
         }
-        return unique_handle{handle};
+        return unique_handle{ handle };
     }
 }
 
 BorderlessWindow::BorderlessWindow()
-    : handle{create_window(&BorderlessWindow::WndProc, this)}
+    : handle{ create_window(&BorderlessWindow::WndProc, this) }
 {
-    set_borderless(borderless);
-    set_borderless_shadow(borderless_shadow);
+    set_borderless();
     ::ShowWindow(handle.get(), SW_SHOW);
 }
 
-void BorderlessWindow::set_borderless(bool enabled) {
-    Style new_style = (enabled) ? select_borderless_style() : Style::windowed;
-    Style old_style = static_cast<Style>(::GetWindowLongPtrW(handle.get(), GWL_STYLE));
+void BorderlessWindow::set_borderless() {
+    Style new_style = Style::aero_borderless;
 
-    if (new_style != old_style) {
-        borderless = enabled;
+    ::SetWindowLongPtrW(handle.get(), GWL_STYLE, static_cast<LONG>(new_style));
 
-        ::SetWindowLongPtrW(handle.get(), GWL_STYLE, static_cast<LONG>(new_style));
+    set_shadow(handle.get());
 
-        // when switching between borderless and windowed, restore appropriate shadow state
-        set_shadow(handle.get(), borderless_shadow && (new_style != Style::windowed));
-
-        // redraw frame
-        ::SetWindowPos(handle.get(), nullptr, 0, 0, 0, 0, SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE);
-        ::ShowWindow(handle.get(), SW_SHOW);
-    }
-}
-
-void BorderlessWindow::set_borderless_shadow(bool enabled) {
-    if (borderless) {
-        borderless_shadow = enabled;
-        set_shadow(handle.get(), enabled);
-    }
+    // redraw frame
+    ::SetWindowPos(handle.get(), nullptr, 0, 0, 0, 0, SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE);
+    ::ShowWindow(handle.get(), SW_SHOW);
 }
 
 auto CALLBACK BorderlessWindow::WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) noexcept -> LRESULT {
@@ -146,54 +123,40 @@ auto CALLBACK BorderlessWindow::WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPAR
         auto& window = *window_ptr;
 
         switch (msg) {
-            case WM_NCCALCSIZE: {
-                if (wparam == TRUE && window.borderless) {
-                    auto& params = *reinterpret_cast<NCCALCSIZE_PARAMS*>(lparam);
-                    adjust_maximized_client_rect(hwnd, params.rgrc[0]);
-                    return 0;
-                }
-                break;
-            }
-            case WM_NCHITTEST: {
-                // When we have no border or title bar, we need to perform our
-                // own hit testing to allow resizing and moving.
-                if (window.borderless) {
-                    return window.hit_test(POINT{
-                        GET_X_LPARAM(lparam),
-                        GET_Y_LPARAM(lparam)
-                    });
-                }
-                break;
-            }
-            case WM_NCACTIVATE: {
-                if (!composition_enabled()) {
-                    // Prevents window frame reappearing on window activation
-                    // in "basic" theme, where no aero shadow is present.
-                    return 1;
-                }
-                break;
-            }
-
-            case WM_CLOSE: {
-                ::DestroyWindow(hwnd);
+        case WM_NCCALCSIZE: {
+            if (wparam == TRUE) {
+                auto& params = *reinterpret_cast<NCCALCSIZE_PARAMS*>(lparam);
+                adjust_maximized_client_rect(hwnd, params.rgrc[0]);
                 return 0;
             }
-
-            case WM_DESTROY: {
-                PostQuitMessage(0);
-                return 0;
+            break;
+        }
+        case WM_NCHITTEST: {
+            // When we have no border or title bar, we need to perform our
+            // own hit testing to allow resizing and moving.
+            return window.hit_test(POINT{
+                GET_X_LPARAM(lparam),
+                GET_Y_LPARAM(lparam)
+                });
+        }
+        case WM_NCACTIVATE: {
+            if (!composition_enabled()) {
+                // Prevents window frame reappearing on window activation
+                // in "basic" theme, where no aero shadow is present.
+                return 1;
             }
+            break;
+        }
 
-            case WM_KEYDOWN:
-            case WM_SYSKEYDOWN: {
-                switch (wparam) {
-                    case VK_F8 : { window.borderless_drag = !window.borderless_drag;        return 0; }
-                    case VK_F9 : { window.borderless_resize = !window.borderless_resize;    return 0; }
-                    case VK_F10: { window.set_borderless(!window.borderless);               return 0; }
-                    case VK_F11: { window.set_borderless_shadow(!window.borderless_shadow); return 0; }
-                }
-                break;
-            }
+        case WM_CLOSE: {
+            ::DestroyWindow(hwnd);
+            return 0;
+        }
+
+        case WM_DESTROY: {
+            PostQuitMessage(0);
+            return 0;
+        }
         }
     }
 
@@ -214,32 +177,32 @@ auto BorderlessWindow::hit_test(POINT cursor) const -> LRESULT {
         return HTNOWHERE;
     }
 
-    const auto drag = borderless_drag ? HTCAPTION : HTCLIENT;
+    const auto drag = HTCAPTION;
 
     enum region_mask {
         client = 0b0000,
-        left   = 0b0001,
-        right  = 0b0010,
-        top    = 0b0100,
+        left = 0b0001,
+        right = 0b0010,
+        top = 0b0100,
         bottom = 0b1000,
     };
 
     const auto result =
-        left    * (cursor.x <  (window.left   + border.x)) |
-        right   * (cursor.x >= (window.right  - border.x)) |
-        top     * (cursor.y <  (window.top    + border.y)) |
-        bottom  * (cursor.y >= (window.bottom - border.y));
+        left * (cursor.x < (window.left + border.x)) |
+        right * (cursor.x >= (window.right - border.x)) |
+        top * (cursor.y < (window.top + border.y)) |
+        bottom * (cursor.y >= (window.bottom - border.y));
 
     switch (result) {
-        case left          : return borderless_resize ? HTLEFT        : drag;
-        case right         : return borderless_resize ? HTRIGHT       : drag;
-        case top           : return borderless_resize ? HTTOP         : drag;
-        case bottom        : return borderless_resize ? HTBOTTOM      : drag;
-        case top | left    : return borderless_resize ? HTTOPLEFT     : drag;
-        case top | right   : return borderless_resize ? HTTOPRIGHT    : drag;
-        case bottom | left : return borderless_resize ? HTBOTTOMLEFT  : drag;
-        case bottom | right: return borderless_resize ? HTBOTTOMRIGHT : drag;
-        case client        : return drag;
-        default            : return HTNOWHERE;
+    case left: return HTLEFT;
+    case right: return HTRIGHT;
+    case top: return HTTOP;
+    case bottom: return HTBOTTOM;
+    case top | left: return HTTOPLEFT;
+    case top | right: return HTTOPRIGHT;
+    case bottom | left: return HTBOTTOMLEFT;
+    case bottom | right: return HTBOTTOMRIGHT;
+    case client: return drag;
+    default: return HTNOWHERE;
     }
 }
