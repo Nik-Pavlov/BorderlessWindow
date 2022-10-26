@@ -41,6 +41,8 @@ namespace {
 
         rect.left += 7;
         rect.top += 7;
+        // If you put -8 here, a 1px gap disappears on Windows 11
+        // but on Windows 10 you won't be able to trigger the hidden taskbar to appear.
         rect.bottom -= 9;
         rect.right -= 7;
     }
